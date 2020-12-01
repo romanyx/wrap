@@ -1,0 +1,63 @@
+import (
+  "io"
+  "log"
+)
+
+{{ $decorator := "" }}
+{{ $return := "" }}
+
+{{if .IsInterface }}
+{{ $decorator = (printf "%sWithLog" (camelize .Type) ) }}
+{{ $return = .Base }}
+{{else}}
+{{ $decorator = (printf "%sWithLog" .Type ) }}
+{{ $return = (printf "*%s" $decorator) }}
+{{end}}
+
+// {{$decorator}} implements {{.Base}} that is instrumented with logging.
+type {{$decorator}} struct {
+  stdlog, errlog *log.Logger
+  base {{.Base}}
+}
+
+// New{{capitalize $decorator}} instruments an implementation of the {{.Base}} with simple logging.
+func New{{capitalize $decorator}}(base {{.Base}}, stdout, stderr io.Writer) {{$return}} {
+  return {{$decorator}}{
+    base: base, 
+    stdlog: log.New(stdout, "", log.LstdFlags),
+    errlog: log.New(stderr, "", log.LstdFlags),
+  }
+}
+
+{{range $m:= .Methods}}
+  // {{$m.Name}} implements {{$.Base}}.
+  func (d {{$decorator}}) {{$m.Declaration}} {
+      {{- if $m.HasParams}}
+        params := []interface{}{"{{$decorator}}: calling {{$m.Name}} with params:", {{$m.ParamsNames}} }
+        d.stdlog.Println(params...)
+      {{else}}
+        d.stdlog.Println("{{$decorator}}: calling {{$m.Name}}")
+      {{end -}}
+      {{- if $m.HasResults}}
+        {{$m.ResultsNames}} := d.base.{{ $m.Call }}
+        results := []interface{}{"{{$decorator}}: {{$m.Name}} returned results:", {{$m.ResultsNames}} }
+        {{- if $m.ReturnsError}}
+          if err != nil {
+            d.errlog.Println(results...)
+            return {{$m.ResultsNames}}
+   	  }
+
+          d.stdlog.Println(results...)
+        {{else}} 
+          d.stdlog.Println(results...)
+        {{end -}}
+
+        return {{$m.ResultsNames}}
+      {{else}}
+        d.base.{{ $m.Call }}
+        d.stdlog.Println("{{$decorator}}: {{$m.Name}} finished")
+
+        return
+      {{end -}}
+  }
+{{end}}
